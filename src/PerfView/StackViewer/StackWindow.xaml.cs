@@ -1904,6 +1904,58 @@ namespace PerfView
 
         }
 
+        private void DoLookupAllSymbols(object sender, ExecutedRoutedEventArgs e)
+        {
+            StatusBar.LogWriter.WriteLine("Loading all symbols.");
+
+            int processID = 0;
+            var m = Regex.Match(IncludeRegExTextBox.Text, @"Process[^;()]*\((\d+)\)(.*)");
+            if (m.Success)
+            {
+                // TODO we can do a better job here.  If we have multiple processes specs we simply don't focus right now. 
+                if (!m.Groups[2].Value.Contains("Process"))
+                    processID = int.Parse(m.Groups[1].Value);
+            }
+
+            //create the list of module names to look up
+            var moduleNames = new HashSet<string>();
+            var success = DoForAllModules(delegate(string moduleName)
+            {
+                moduleNames.Add(moduleName);
+            });
+
+            if (DataSource.Title.StartsWith("Diff"))
+            {
+                StatusBar.LogError("Symbol lookup for Diff not supported.  You must look up symbols before doing the diff.");
+                return;
+            }
+
+            // Look them up.
+            StatusBar.StartWork("All Symbol Lookup", delegate ()
+            {
+                foreach (var moduleName in moduleNames)
+                {
+                    StatusBar.LogWriter.WriteLine();
+                    StatusBar.LogWriter.WriteLine("***************************************************************************");
+                    StatusBar.LogWriter.WriteLine("[Looking up symbols for " + moduleName + "]");
+                    try
+                    {
+                        DataSource.DataFile.LookupSymbolsForModule(moduleName, StatusBar.LogWriter, processID);
+                        StatusBar.Log("Finished Lookup up symbols for " + moduleName + " Elapsed Time = " +
+                            StatusBar.Duration.TotalSeconds.ToString("n3"));
+                    }
+                    catch (ApplicationException ex)
+                    {
+                        StatusBar.LogError("Error looking up " + moduleName + "\r\n    " + ex.Message);
+                    }
+                }
+                StatusBar.EndWork(delegate ()
+                {
+                    Update();
+                });
+            });
+        }
+
         private void DoLookupSymbols(object sender, ExecutedRoutedEventArgs e)
         {
             int processID = 0;
@@ -2667,6 +2719,8 @@ namespace PerfView
             new InputGestureCollection() { new KeyGesture(Key.S, ModifierKeys.Alt) });
         public static RoutedUICommand LookupWarmSymbolsCommand = new RoutedUICommand("Lookup Warm Symbols", "LookupWarmSymbols", typeof(StackWindow),
             new InputGestureCollection() { new KeyGesture(Key.S, ModifierKeys.Alt | ModifierKeys.Control) });
+        public static RoutedUICommand LookupAllSymbolsCommand = new RoutedUICommand("Lookup All Symbols", "LookupAllSymbols", typeof(StackWindow),
+            new InputGestureCollection() { new KeyGesture(Key.S, ModifierKeys.Alt | ModifierKeys.Control | ModifierKeys.Shift) });
         public static RoutedUICommand GotoSourceCommand = new RoutedUICommand("Goto Source (Def)", "GotoSource", typeof(StackWindow),
             new InputGestureCollection() { new KeyGesture(Key.D, ModifierKeys.Alt) });
 
@@ -2844,6 +2898,36 @@ namespace PerfView
             // TODO see if we can use this in as many places as possible. 
             var badStrs = "";
             foreach (string cellStr in SelectedCellsStringValue())
+            {
+                Match m = Regex.Match(cellStr, @"([ \w.-]+)!");
+                if (m.Success)
+                    moduleAction(m.Groups[1].Value);
+                else
+                {
+                    m = Regex.Match(cellStr, @"^module ([ \w.-]+)");
+                    if (m.Success)
+                        moduleAction(m.Groups[1].Value);
+                    else
+                    {
+                        if (badStrs.Length > 0)
+                            badStrs += " ";
+                        badStrs += cellStr;
+                    }
+                }
+            }
+            if (badStrs.Length > 0)
+            {
+                StatusBar.LogError("Could not find a module pattern in text " + badStrs + ".");
+                return false;
+            }
+            return true;
+        }
+
+        private bool DoForAllModules(Action<string> moduleAction)
+        {
+            // TODO see if we can use this in as many places as possible. 
+            var badStrs = "";
+            foreach (string cellStr in AllCellsStringValue())
             {
                 Match m = Regex.Match(cellStr, @"([ \w.-]+)!");
                 if (m.Success)
@@ -3073,6 +3157,38 @@ namespace PerfView
                     i += dataGrid.Columns.Count - 1;
             }
         }
+
+        private IEnumerable<string> AllCellsStringValue()
+        {
+            var root = this.m_callTree.Root;
+            foreach (var callees in root.Callees)
+            {
+                foreach (var name in AllNameValues(callees))
+                {
+                    yield return name;
+                }
+            }
+        }
+
+        private IEnumerable<string> AllNameValues(CallTreeNode node)
+        {
+            if (node != null)
+            {
+                yield return node.Name;
+
+                if (node.Callees != null)
+                {
+                    foreach (var callees in node.Callees)
+                    {
+                        foreach (var name in AllNameValues(callees))
+                        {
+                            yield return name;
+                        }
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// Returns true if the cells starting at 'startIndex' begin a complete full row.  
         /// </summary>
