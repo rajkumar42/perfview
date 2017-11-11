@@ -314,6 +314,11 @@ namespace PerfView
 #endif
         }
 
+        public void SetBackgroundColor(Brush color)
+        {
+            m_treeView.m_perfGrid.ChangeBackgroundColor(this, color);
+        }
+
         /// <summary>
         /// Is the node expanded or not.  
         /// </summary>
