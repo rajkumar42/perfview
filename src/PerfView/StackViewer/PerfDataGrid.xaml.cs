@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.Windows.Documents;
 using System.Windows;
 using Utilities;
+using System.Windows.Media;
 
 namespace PerfView
 {
@@ -133,6 +134,14 @@ namespace PerfView
                     Select(item);
                     return true;
                 }
+            }
+        }
+        public void ChangeBackgroundColor(object item, Brush backgroundColor)
+        {
+            var row = (DataGridRow)Grid.ItemContainerGenerator.ContainerFromItem(item);
+            if (row != null)
+            {
+                row.Background = backgroundColor;
             }
         }
         public void Select(object item)
